@@ -108,9 +108,7 @@ void input_process(){
 	struct input_event ev[BUF_SIZE];
 	int but_size = sizeof(struct input_event);
 	int swi_size = sizeof(data.swi);
-	int but_flag = 0;
 	int rd;
-	int i;
 
 	if((dev_but = open(BUT_DEV, O_RDONLY|O_NONBLOCK)) == -1){
 		printf("%s is not valid device.\n", BUT_DEV);
@@ -132,8 +130,7 @@ void input_process(){
 	msgsnd(in_msqid, &data, sizeof(in_data) - sizeof(long), IPC_NOWAIT);
 
 	while(1){
-		usleep(200000);
-		//printf("INP\n");
+		usleep(20000);
 		// button input
 		if((rd = read(dev_but, ev, but_size * BUF_SIZE)) >= but_size){	// read the buttons input
 			data.but[0] = ev[0].value && (ev[0].code == 115);	// VOL+
@@ -145,22 +142,16 @@ void input_process(){
 			data.but[2] = 1;
 			// send the message to main process to exit
 			msgsnd(in_msqid, &data, sizeof(in_data) - sizeof(long), IPC_NOWAIT);
-			//printf("INDIE\n");
 			return;
 		}
 
 		// switch input
 		read(dev_swi, &data.swi, swi_size);	// read the switches input
-
+		
 		// if the data comes in then send it to the main process
-		if(check_in_data(prev,data) || but_flag){
+		if(check_in_data(prev,data)){
 			msgsnd(in_msqid, &data, sizeof(in_data) - sizeof(long), IPC_NOWAIT);
-			but_flag = 0;
 			prev = data;
-		}
-		if(data.but[0] || data.but[1]){
-			memset(&data.but, 0, sizeof(data.but));
-			but_flag = 1;
 		}
 	}
 }
@@ -169,9 +160,9 @@ void input_process(){
 int check_in_data(in_data a, in_data b){
 	int i;
 	for(i = 0; i < BUT_SIZE; i++)
-		if(a.but[i] != a.but[i]) return 1;
+		if(a.but[i] != b.but[i]) return 1;
 	for(i = 0; i < SWI_SIZE; i++)
-		if(a.swi[i] != b.but[i]) return 1;
+		if(a.swi[i] != b.swi[i]) return 1;
 
 	return 0;
 }
@@ -227,7 +218,7 @@ void change_n(int *num, int mode, out_data *data){
 		data->fnd[3] = *num%4;
 	}
 	else if(mode == 2){	// convert to 2's notation
-		*num %= 4;
+		*num %= 8;
 		data->fnd[1] = *num/4;
 		data->fnd[2] = (*num%4)/2;
 		data->fnd[3] = *num%2;
@@ -262,7 +253,6 @@ void main_process(){
 	int mol_n = 0;
 
 	// init
-	msgrcv(in_msqid, &in, sizeof(in_data) - sizeof(long), 0, IPC_NOWAIT);
 	mode_init(&out,mode,devtime,&mol_n);
 	prevtime[0] = devtime[0];
 	prevtime[1] = devtime[1];
@@ -271,16 +261,8 @@ void main_process(){
 
 	while(1){
 		// receive the message from the input process
-		msgrcv(in_msqid, &in, sizeof(in_data) - sizeof(long), 0, IPC_NOWAIT);
-		usleep(200000);
-
-		/*//debug
-		printf("after msgrcv\n");
-		printf("BUT: [%d] [%d]\n", in.but[0], in.but[1]);
-		printf("SWI: ");
-		for(i = 0; i < SWI_SIZE; i++) printf("[%d] ", in.swi[i]);
-		printf("\n\n");
-		// debug*/
+		msgrcv(in_msqid, &in, sizeof(in_data) - sizeof(long), 0, 0);
+		usleep(2000);
 
 		if(in.but[0]){	// if push VOL+ button then change the mode
 			mode = (mode + 1) % MODE;
@@ -317,11 +299,9 @@ void main_process(){
 			usleep(400000);
 			msgctl(in_msqid, IPC_RMID, 0);
 			msgctl(out_msqid, IPC_RMID, 0);
-			//printf("MAINDIE\n");
 			return;
 		}
 		
-		//printf("MODE [%d]\n",mode);
 		if(mode == 0){	// mode 1 [CLOCK]
 			timer = time(NULL);
 			t = localtime(&timer);
@@ -490,8 +470,6 @@ void main_process(){
 				outflag = 1;
 			}
 			else if(in.swi[2]){	// cursor
-				/*if(out.curmode == 1) out.curmode = 2;
-				else if(out.curmode == 2) out.curmode = 1;*/
 				out.curmode = !out.curmode;
 				brd_cnt++;
 				outflag = 1;
@@ -608,8 +586,6 @@ void output_process(){
 		slp_cnt++;
 		
 		led_n = data.led;
-		//printf("LED[%d]\n",led_n);
-		//printf("CUR[%d,%d]\n",data.cur[0],data.cur[1]);
 		// if one second passes, then blink the led or cursor
 		if(slp_cnt >= 7000){
 			if(data.settime){	// in mode 1 led blink
