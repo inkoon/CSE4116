@@ -130,7 +130,7 @@ void input_process(){
 	msgsnd(in_msqid, &data, sizeof(in_data) - sizeof(long), IPC_NOWAIT);
 
 	while(1){
-		usleep(20000);
+		usleep(100000);
 		// button input
 		if((rd = read(dev_but, ev, but_size * BUF_SIZE)) >= but_size){	// read the buttons input
 			data.but[0] = ev[0].value && (ev[0].code == 115);	// VOL+
@@ -199,30 +199,10 @@ void mode_init(out_data *data, int mode, int devtime[2], int *mol_n){
 
 // convert the number to the notation
 void change_n(int *num, int mode, out_data *data){
-	if(mode == 10){	// convert to 10's notation
-		*num %= 1000;
-		data->fnd[1] = *num/100;
-		data->fnd[2] = (*num%100)/10;
-		data->fnd[3] = *num%10;
-	}
-	else if(mode == 8){	// convert to 8's notation
-		*num %= 512;
-		data->fnd[1] = *num/64;
-		data->fnd[2] = (*num%64)/8;
-		data->fnd[3] = *num%8;
-	}
-	else if(mode == 4){	// convert to 4's notation
-		*num %= 64;
-		data->fnd[1] = *num/16;
-		data->fnd[2] = (*num%16)/4;
-		data->fnd[3] = *num%4;
-	}
-	else if(mode == 2){	// convert to 2's notation
-		*num %= 8;
-		data->fnd[1] = *num/4;
-		data->fnd[2] = (*num%4)/2;
-		data->fnd[3] = *num%2;
-	}
+	*num %= mode*mode*mode;
+	data->fnd[1] = *num/(mode*mode);
+	data->fnd[2] = (*num%(mode*mode))/mode;
+	data->fnd[3] = *num%mode;
 }
 
 void main_process(){
@@ -262,7 +242,7 @@ void main_process(){
 	while(1){
 		// receive the message from the input process
 		msgrcv(in_msqid, &in, sizeof(in_data) - sizeof(long), 0, 0);
-		usleep(2000);
+		usleep(100000);
 
 		if(in.but[0]){	// if push VOL+ button then change the mode
 			mode = (mode + 1) % MODE;
@@ -617,7 +597,6 @@ void output_process(){
 			close(dot);
 			close(lcd);
 			munmap(led_addr, 4096);
-			printf("OUTDIE\n");
 			return;
 		}
 	}
