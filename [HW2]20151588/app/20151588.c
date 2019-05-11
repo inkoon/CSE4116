@@ -31,7 +31,7 @@ int main(int argc, char **argv){
 	}
 
 	write(dev,(const char *)data,4);
-	ioctl(dev,IOCTL_WCMD,data);
+	//ioctl(dev,IOCTL_WCMD,data);
 
 	close(dev);
 

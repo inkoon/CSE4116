@@ -1,1 +1,0 @@
-cmd_/home/embe/Desktop/20151588/module/module.ko := arm-none-linux-gnueabi-ld -EL -r  -T /work/achroimx_kernel/scripts/module-common.lds --build-id  -o /home/embe/Desktop/20151588/module/module.ko /home/embe/Desktop/20151588/module/module.o /home/embe/Desktop/20151588/module/module.mod.o
