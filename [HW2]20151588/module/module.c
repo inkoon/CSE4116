@@ -24,6 +24,7 @@
 #define DEV_NAME "dev_driver"
 #define ID_LEN 8
 #define NAME_LEN 11
+#define IOCTL_WRITE _IOW(DEV_MAJOR,0,char *)
 
 /* Global variables */
 static int driver_usage = 0;	// driver usage count
@@ -61,7 +62,7 @@ struct mydata t;
 /* device open function */
 int dev_open(struct inode *inode, struct file *filp){
 	printk("dev_driver open\n");
-	if(driver_usage != 0) return -EBUSY;
+	if(driver_usage != 0) return -EBUSY;	// device is busy now
 	driver_usage = 1;
 
 	return 0;
@@ -96,20 +97,30 @@ ssize_t dev_write(struct file *filp, const char *gdata, size_t length, loff_t *o
 
 /* function to be invoked if timer expires */
 void kernel_timer_blink(unsigned long timeout){
-	unsigned char start;
-	unsigned char value;
-	unsigned char hz;
-	unsigned char start_c;
-	unsigned char term_c;
-	int i;
-	unsigned long tmp = t.timer.data;
-	unsigned char fnd[4] = {0};
-	unsigned char led;
-	unsigned char lcd[33];
-	int text1_i;
-	int text2_i;
-	unsigned short int s_val = 0;
-	if((t.count--) <= 0) return;
+	unsigned char start;	// fnd start position
+	unsigned char value;	// fnd start value
+	unsigned char hz;	// interval hz
+	unsigned char start_c;	// initial count number
+	unsigned char term_c;	// term between initial count number and current count number
+	int i;	// variable for iteration
+	unsigned long tmp = t.timer.data;	// get previous timer data
+	unsigned char fnd[4] = {0};	// output value for fnd
+	unsigned char led;	// output value for led
+	unsigned char lcd[33];	// output value for lcd
+	int text1_i;	// text 1(ID)'s index
+	int text2_i;	// text 2(NAME)'s index
+	unsigned short int s_val = 0;	// variable for output
+	/* if repeatition is finished */
+	if((t.count--) <= 0){
+		/* clear the device */
+		s_val = 0;
+		outw(s_val,(unsigned int)iom_fpga_fnd_addr);
+		outw(s_val,(unsigned int)iom_fpga_led_addr);
+		for(i=0; i<10; i++) outw(s_val,(unsigned int)iom_fpga_dot_addr+i*2);
+		for(i=0; i<32; i+=2) outw(s_val,(unsigned int)iom_fpga_text_lcd_addr+i);
+		printk("timer blink end\n");
+		return;
+	}
 	printk("timer blink[%d]\n",t.count+1);
 
 	/* timer set */
@@ -145,7 +156,6 @@ void kernel_timer_blink(unsigned long timeout){
 	for(i=0;i<32;i++) lcd[i] = ' ';
 	for(i=0;i<ID_LEN;i++) lcd[i+text1_i] = LCD1[i];
 	for(i=0;i<NAME_LEN;i++) lcd[i+text2_i+16] = LCD2[i];
-	printk("SSS:%s\n",lcd);
 	for(i=0;i<32;i++){
 		s_val = (lcd[i]&0xFF)<<8|(lcd[i+1]&0xFF);
 		outw(s_val,(unsigned int)iom_fpga_text_lcd_addr+i);
@@ -166,15 +176,24 @@ void kernel_timer_blink(unsigned long timeout){
 /* ioctl function */
 long dev_ioctl(struct file *filp, unsigned int cmd, unsigned long param){
 	printk("ioctl\n");
-	dev_write(filp,(const char *)param,4,0);
+	
+	if(_IOC_TYPE(cmd) != DEV_MAJOR) return -EINVAL;
 
-	return 1;
+	/* we have only write option */
+	switch(cmd){
+		case IOCTL_WRITE:
+		dev_write(filp,(const char *)param,4,0);
+		break;
+	}
+
+	return 0;
 }
 
 /* device close function */
 int dev_release(struct inode *inode, struct file *filp){
 	printk("dev_driver close\n");
 	driver_usage = 0;
+
 	return 0;
 }
 

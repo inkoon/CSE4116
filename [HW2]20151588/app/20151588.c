@@ -30,8 +30,8 @@ int main(int argc, char **argv){
 		exit(1);
 	}
 
-	write(dev,(const char *)data,4);
-	//ioctl(dev,IOCTL_WCMD,data);
+	//write(dev,(const char *)data,4);
+	ioctl(dev,IOCTL_WCMD,data);
 
 	close(dev);
 
