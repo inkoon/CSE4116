@@ -22,9 +22,6 @@
 #define DEV_NAME "stopwatch"
 
 /* Global variables */
-static int major=0, minor=0;
-static dev_t dev;
-static struct cdev cdev;
 static int driver_usage=0;	// driver usage count
 static unsigned char *iom_fpga_fnd_addr;	// fnd device mapping address
 
@@ -58,14 +55,19 @@ static struct file_operations stopwatch_fops =
 typedef struct time{
 	struct timer_list timer;
 	int stop;	// 0:start, 1:stop
-	int value;	// record time
+	int value;	// recorded time
 }time;
-struct time t;
-struct time end;
+struct time t;	// timer which record the time
+struct timer_list end;	// timer which wait for end signal
 
+/*
+	The interrupt handler which is called when HOME button was pushed.
+	This interrupt handler add the timer to record the time, when the
+	recorded time is 0. Otherwise do noting.
+ */
 irqreturn_t inter_handler1(int irq, void* dev_id, struct pt_regs* reg) {
 	printk(KERN_ALERT "interrupt1!!! = %x\n", gpio_get_value(IMX_GPIO_NR(1, 11)));
-	if(t.stop){
+	if(t.value == 0){
 		t.timer.expires = get_jiffies_64() + (HZ/100);
 		t.timer.data=0;
 		t.timer.function = stopwatch_blink;
@@ -76,35 +78,62 @@ irqreturn_t inter_handler1(int irq, void* dev_id, struct pt_regs* reg) {
 	return IRQ_HANDLED;
 }
 
+/*
+	The interrupt handler which is called when BACK button was pushed.
+	This interrupt handler pause the timer which record the time.
+	If it was already stopped, then resume it.
+ */
 irqreturn_t inter_handler2(int irq, void* dev_id, struct pt_regs* reg) {
 	printk(KERN_ALERT "interrupt2!!! = %x\n", gpio_get_value(IMX_GPIO_NR(1, 12)));
-    t.stop = 1;
+	if(t.stop && t.value != 0){
+		t.timer.expires = get_jiffies_64() + (HZ/100);
+		t.timer.data=0;
+		t.timer.function = stopwatch_blink;
+		t.stop = 0;
+		add_timer(&(t.timer));
+	}
+	else{
+		t.stop = 1;
+	}
+
 	return IRQ_HANDLED;
 }
 
+/*
+	The interrupt handler which is called when VOL+ button was pushed.
+	This interrupt handler clear the time, but state(whether recording or not). 
+ */
 irqreturn_t inter_handler3(int irq, void* dev_id,struct pt_regs* reg) {
 	printk(KERN_ALERT "interrupt3!!! = %x\n", gpio_get_value(IMX_GPIO_NR(2, 15)));
 	t.value = 0;
 	fnd_write(0);
-	t.stop = 1;
 	return IRQ_HANDLED;
 }
 
+/*
+	The interrupt handler which is called when VOL- button was pushed or pulled.
+	This interrupt handler add the timer to wake up the wait_queue, when VOL-
+	button was pushed. And delete it when VOL- button was pulled.
+	
+ */
 irqreturn_t inter_handler4(int irq, void* dev_id, struct pt_regs* reg) {
 	printk(KERN_ALERT "interrupt4!!! = %x\n", gpio_get_value(IMX_GPIO_NR(5, 14)));
 	if(gpio_get_value(IMX_GPIO_NR(5, 14))){
-		del_timer(&end.timer);
+		del_timer(&end);
 	}
 	else{
-		end.timer.expires = get_jiffies_64() + 3*HZ;
-		end.timer.data = 0;
-		end.timer.function = stopwatch_end;
-		add_timer(&(end.timer));
+		end.expires = get_jiffies_64() + 3*HZ;
+		end.data = 0;
+		end.function = stopwatch_end;
+		add_timer(&(end));
 	}
 	return IRQ_HANDLED;
 }
 
-/* function to be invoked if 't' timer expires */
+/*
+	Function to be invoked if 't' timer expires.
+	Record the time, and write the time to the fnd device.
+*/
 void stopwatch_blink(unsigned long timeout){
 	if(t.stop){
 		return;
@@ -135,17 +164,27 @@ void fnd_write(int time){
 	outw(s_value,(unsigned int)iom_fpga_fnd_addr);
 }
 
+/*
+	Function to be invoked if 'end' timer expires.
+	It will wake up the wait queue.
+*/
 void stopwatch_end(unsigned long timeout){
-	fnd_write(0);
 	t.value = 0;
+	fnd_write(0);
+	// wake up the wait queue
 	__wake_up(&wait_q,1,1,NULL);
 }
 
+/*
+	Device open function.
+	Increase the usage, and install interrupt handler.
+*/
 static int stopwatch_open(struct inode *minode, struct file *mfile){
 	int ret;
 	int irq;
 
 	printk(KERN_ALERT "Open Module\n");
+	// if device is idle, increase the usage
 	if(driver_usage != 0) return -EBUSY;
 	driver_usage = 1;
 	t.stop = 1;
@@ -178,72 +217,46 @@ static int stopwatch_open(struct inode *minode, struct file *mfile){
 	return 0;
 }
 
+/* function to be called  */
 static int stopwatch_release(struct inode *minode, struct file *mfile){
+	// free the interrupt handler
 	free_irq(gpio_to_irq(IMX_GPIO_NR(1, 11)), NULL);
 	free_irq(gpio_to_irq(IMX_GPIO_NR(1, 12)), NULL);
 	free_irq(gpio_to_irq(IMX_GPIO_NR(2, 15)), NULL);
 	free_irq(gpio_to_irq(IMX_GPIO_NR(5, 14)), NULL);
-	//cdev_del(&cdev);
+	// delete timer
 	del_timer(&(t.timer));
-	del_timer(&(end.timer));
-
+	del_timer(&(end));
+	// decrease usage
 	driver_usage = 0;
 	
 	printk(KERN_ALERT "Release Module\n");
 	return 0;
 }
 
+/* device write function */
 static int stopwatch_write(struct file *filp, const char *buf, size_t count, loff_t *f_pos ){
 	printk("write\n");
 	
-	interruptible_sleep_on(&wait_q);
+	interruptible_sleep_on(&wait_q);	// sleep!
 
-	return 0;
-}
-
-/* Registering the device */
-static int stopwatch_register_cdev(void)
-{
-	int error;
-	int result;
-	major = MAJOR_NUM;
-	if(major){
-		dev = MKDEV(major, minor);
-		error = register_chrdev_region(dev,1,"stopwatch");
-	}
-	else{
-		error = alloc_chrdev_region(&dev,minor,1,"stopwatch");
-		major = MAJOR(dev);
-	}
-	if(error<0) {
-		printk(KERN_WARNING "stopwatch: can't get major %d\n",major);
-		return result;
-	}
-	printk(KERN_ALERT "major number = %d\n", major);
-	cdev_init(&cdev,&stopwatch_fops);
-	cdev.owner = THIS_MODULE;
-	cdev.ops = &stopwatch_fops;
-	error = cdev_add(&cdev,dev,1);
-	if(error)
-	{
-		printk(KERN_NOTICE "stopwatch Register Error %d\n", error);
-	}
 	return 0;
 }
 
 /* insmod function */
 static int __init stopwatch_init(void) {
 	int result;
-	/*if((result = stopwatch_register_cdev()) < 0 )
-		return result;*/
+	// register the device
 	result = register_chrdev(MAJOR_NUM,DEV_NAME,&stopwatch_fops);
 	if(result < 0){
 		printk("driver init error![%d]\n",result);
 		return result;
 	}
+	// allocate the physical address sapce th the kernel address space
 	iom_fpga_fnd_addr = ioremap(IOM_FND_ADDRESS,0x4);
+	// initialize timer
 	init_timer(&(t.timer));
-	init_timer(&(end.timer));
+	init_timer(&(end));
 	printk(KERN_ALERT "Init Module Success\n");
 	printk(KERN_ALERT "Device : /dev/stopwatch, Major Num : 242\n");
 	return 0;
@@ -251,9 +264,9 @@ static int __init stopwatch_init(void) {
 
 /* rmmod function */
 static void __exit stopwatch_exit(void) {
+	// free the kernel address space
 	iounmap(iom_fpga_fnd_addr);
-	//unregister_chrdev_region(dev, 1);
-	driver_usage = 0;
+	// unregister the device
 	unregister_chrdev(MAJOR_NUM,DEV_NAME);
 	printk(KERN_ALERT "Remove Module Success \n");
 }
