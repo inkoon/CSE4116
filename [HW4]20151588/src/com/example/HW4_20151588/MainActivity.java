@@ -27,8 +27,5 @@ public class MainActivity extends Activity{
 			}
 		};
 		btn.setOnClickListener(listener);
-		
-		
 	}
-
 }

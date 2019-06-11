@@ -1,11 +1,19 @@
 package com.example.HW4_20151588;
 
 import com.example.HW4_20151588.R;
+import com.example.HW4_20151588.TimerService.TimerBinder;
 
 import java.util.Random;
 import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.content.ComponentName;
 import android.graphics.Color;
 import android.os.Bundle;
+import android.os.IBinder;
+import android.os.Binder;
+import android.os.Handler;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
@@ -14,7 +22,6 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 public class MainActivity2 extends Activity{
-	
 	// components
 	LinearLayout linear, content;
 	EditText data;
@@ -23,9 +30,38 @@ public class MainActivity2 extends Activity{
 	Button btns[];
 	LinearLayout lns[];
 	
+	// service object
+	TimerService ts;
+	boolean isService = false;
+	
 	// global variables
 	int row,col,size;
 	boolean click_flag = true;
+	
+	Handler handler = new Handler();
+	
+	private class TimerThread extends Thread{
+		private int m,s;
+		
+		public TimerThread(){
+			this.m = 0;
+			this.s = 0;
+		}
+		
+		@Override
+		public void run(){
+			runOnUiThread(new Runnable(){
+				@Override
+				public void run(){
+					while(s<25){
+						m = ts.getMin();
+						s = ts.getSec();
+						tv.setText(""+m+":"+s);
+					}
+				}
+			});
+		}
+	}
 	
 	// "make buttons" OnClickListener
 	OnClickListener ltn = new OnClickListener(){
@@ -41,11 +77,31 @@ public class MainActivity2 extends Activity{
 					tv.setText("row&col should be less than 5");
 					return;
 				}
-				click_flag = false;
+				click_flag = false;		
 				int num[] = new int[row*col];
-				
 				shuffle(num,row,col);
-				make_button(num,row,col);		
+				make_button(num,row,col);
+				
+				if(isService){
+					ts.timerStart();
+					/*TimerThread tt = new TimerThread();
+					tt.start();*/
+					new TimerThread().start();
+					/*new Thread(new Runnable(){
+						public void run(){
+							handler.post(new Runnable(){
+								int m,s=0;
+								public void run(){
+									while(s<10){
+										m = ts.getMin();
+										s = ts.getSec();
+										tv.setText(""+m+":"+s);
+									}
+								}
+							});
+						}
+					}).start();*/
+				}
 			}
 		}
 	};
@@ -171,7 +227,11 @@ public class MainActivity2 extends Activity{
 				break;
 			}
 		}
-		if(pass) finish();
+		if(pass){
+			click_flag = true;
+			unbindService(conn);
+			finish();
+		}
 	}
 	
 	// make row*col buttons
@@ -197,12 +257,22 @@ public class MainActivity2 extends Activity{
 			btns[i].setOnClickListener(b_ltn);
 			btns[i].setWidth(1024/col);
 			btns[i].setHeight(360/row);
-		}
-		
+		}		
 		set_button();
 	}
 	
-		@Override
+	ServiceConnection conn = new ServiceConnection(){
+		public void onServiceConnected(ComponentName name,IBinder service){
+			TimerBinder mb = (TimerBinder)service;
+			ts = mb.getService();
+			isService = true;
+		}
+		public void onServiceDisconnected(ComponentName name){
+			isService = false;
+		}
+	};
+	
+	@Override
 	protected void onCreate(Bundle savedInstanceState) {
 		// TODO Auto-generated method stub
 		super.onCreate(savedInstanceState);
@@ -216,7 +286,8 @@ public class MainActivity2 extends Activity{
 		tv.setBackgroundColor(Color.BLACK);
 		btn=(Button)findViewById(R.id.button1);
 		btn.setOnClickListener(ltn);
-		
-	}
 
+		Intent intent = new Intent(MainActivity2.this,TimerService.class);
+		bindService(intent,conn,Context.BIND_AUTO_CREATE);
+	}
 }
