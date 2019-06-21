@@ -4,6 +4,8 @@ import com.example.HW4_20151588.R;
 import com.example.HW4_20151588.TimerService.TimerBinder;
 
 import java.util.Random;
+import java.util.TimerTask;
+
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
@@ -12,14 +14,14 @@ import android.content.ComponentName;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.os.IBinder;
-import android.os.Binder;
-import android.os.Handler;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class MainActivity2 extends Activity{
 	// components
@@ -37,31 +39,25 @@ public class MainActivity2 extends Activity{
 	// global variables
 	int row,col,size;
 	boolean click_flag = true;
-	
-	Handler handler = new Handler();
-	
-	private class TimerThread extends Thread{
-		private int m,s;
-		
-		public TimerThread(){
-			this.m = 0;
-			this.s = 0;
-		}
-		
+
+	// TimerTask for implement the timer
+    public Timer timer = new Timer();
+	public TimerTask timerTask = new TimerTask(){
+		public int m;
+		public int s=0;
 		@Override
 		public void run(){
 			runOnUiThread(new Runnable(){
 				@Override
 				public void run(){
-					while(s<25){
+						ts.timerCount();
 						m = ts.getMin();
 						s = ts.getSec();
-						tv.setText(""+m+":"+s);
-					}
+						tv.setText(""+String.format("%02d",m)+":"+String.format("%02d",s));
 				}
 			});
 		}
-	}
+	};
 	
 	// "make buttons" OnClickListener
 	OnClickListener ltn = new OnClickListener(){
@@ -77,30 +73,21 @@ public class MainActivity2 extends Activity{
 					tv.setText("row&col should be less than 5");
 					return;
 				}
+				else if(row == 1 && col == 1){
+					tv.setText("row&col should not be 1");
+					return;
+				}
 				click_flag = false;		
 				int num[] = new int[row*col];
-				shuffle(num,row,col);
+				do{shuffle(num,row,col);}
+				while(check_shuffle(num));
 				make_button(num,row,col);
 				
 				if(isService){
 					ts.timerStart();
-					/*TimerThread tt = new TimerThread();
-					tt.start();*/
-					new TimerThread().start();
-					/*new Thread(new Runnable(){
-						public void run(){
-							handler.post(new Runnable(){
-								int m,s=0;
-								public void run(){
-									while(s<10){
-										m = ts.getMin();
-										s = ts.getSec();
-										tv.setText(""+m+":"+s);
-									}
-								}
-							});
-						}
-					}).start();*/
+					tv.setText("00:00");
+					// schedule timertask every 1 second
+					timer.schedule(timerTask,1000,1000);
 				}
 			}
 		}
@@ -232,6 +219,17 @@ public class MainActivity2 extends Activity{
 			unbindService(conn);
 			finish();
 		}
+	}
+	
+	// check whether puzzle is shuffled well or not
+	public boolean check_shuffle(int num[]){
+		int i;
+		for(i=0;i<row*col-1;i++){
+			if(i+1 != num[i]){
+				return false;
+			}
+		}
+		return true;
 	}
 	
 	// make row*col buttons
